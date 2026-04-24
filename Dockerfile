@@ -18,8 +18,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 # Copy project source and install the package itself.
+# README.md is required because pyproject.toml declares it in [project.readme];
+# hatchling validates its presence when building the wheel.
 COPY src ./src
 COPY prompts ./prompts
+COPY README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 

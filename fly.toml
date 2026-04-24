@@ -14,7 +14,27 @@ kill_timeout = "30s"
   HOST = "0.0.0.0"
   PORT = "8000"
   LOG_LEVEL = "INFO"
+
+  # Persistent paths on the mounted volume.
   AGENT_CHECKPOINT_DB = "/app/data/checkpoints.sqlite"
+  AGENT_STATE_DB      = "/app/data/state.sqlite"
+
+  # W-API (non-secret base URL; token/instance/webhook live in fly secrets).
+  WAPI_BASE_URL = "https://api.w-api.app/v1"
+
+  # Mistral (non-secret model tuning; API key lives in fly secrets).
+  MISTRAL_MODEL       = "mistral-large-latest"
+  MISTRAL_TEMPERATURE = "0.3"
+  MISTRAL_MAX_TOKENS  = "1024"
+
+  # Agent.
+  AGENT_PROMPT_PATH    = "prompts/system.md"
+  AGENT_HISTORY_WINDOW = "30"
+
+  # Human takeover.
+  TAKEOVER_WINDOW_SECONDS  = "1800"
+  TAKEOVER_PAUSE_COMMANDS  = "!pausar,!pause,!ai off,!bot off"
+  TAKEOVER_RESUME_COMMANDS = "!retomar,!resume,!ai on,!bot on"
 
 # Persistent SQLite volume for LangGraph checkpointer.
 # Create it once with: `fly volumes create ai_wpp_data --region gru --size 1`
