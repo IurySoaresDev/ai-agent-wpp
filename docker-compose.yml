@@ -1,0 +1,42 @@
+services:
+  ai-wpp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-wpp:latest
+    container_name: ai-wpp
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Override here if needed; .env is the source of truth.
+      AGENT_CHECKPOINT_DB: /app/data/checkpoints.sqlite
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist the LangGraph checkpointer across container restarts.
+      - ai-wpp-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    # Hardening: no new privileges, read-only root FS with explicit writable
+    # volumes, and no capability bloat.
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ai-wpp-data:
+    driver: local
