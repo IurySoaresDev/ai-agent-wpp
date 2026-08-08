@@ -102,8 +102,8 @@ dev), basta alterar `MISTRAL_MODEL` no `.env`.
 
 ### Template — variáveis injetadas por turno
 
-O prompt é compilado como um `ChatPromptTemplate` do LangChain em formato
-**mustache**. As variáveis abaixo são renderizadas fresh a cada mensagem:
+O prompt é carregado pelo agente e suas variáveis `{{nome}}` são renderizadas
+diretamente dentro do nó de conversa do LangGraph a cada mensagem:
 
 | Variável              | Valor em runtime                                                           |
 | --------------------- | -------------------------------------------------------------------------- |

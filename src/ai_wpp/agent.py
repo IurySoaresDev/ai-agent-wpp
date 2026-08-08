@@ -3,10 +3,8 @@
 Design notes:
 
 * The system prompt is a **Markdown template** with mustache-style
-  placeholders (``{{var}}``). It's compiled once at startup into a proper
-  ``ChatPromptTemplate`` + ``MessagesPlaceholder`` pair — the canonical
-  LangChain way to combine a static instruction block with dynamic chat
-  history.
+  placeholders (``{{var}}``). It is loaded once and rendered directly inside
+  the LangGraph node, without a LangChain prompt chain.
 * Per-turn runtime context (current timestamp, appropriate greeting,
   contact display name, first-turn flag) is injected by
   :func:`_build_prompt_context` and substituted at invocation time.
@@ -20,15 +18,14 @@ Design notes:
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.prompts.chat import SystemMessagePromptTemplate
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_mistralai import ChatMistralAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -40,6 +37,7 @@ from .logging import get_logger
 log = get_logger(__name__)
 
 _BR_TZ = ZoneInfo("America/Sao_Paulo")
+_PROMPT_VARIABLE_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
 
 _WEEKDAY_PT = (
     "segunda-feira",
@@ -66,6 +64,23 @@ def _load_prompt(path: Path) -> str:
     if not text:
         raise ValueError(f"System prompt file {path} is empty.")
     return text
+
+
+def _render_prompt(template: str, context: dict[str, str]) -> str:
+    """Render the prompt's simple ``{{variable}}`` placeholders.
+
+    The project only needs scalar variable replacement, so keeping rendering
+    local avoids building a separate LangChain prompt pipeline around the
+    LangGraph node. Unknown variables fail fast instead of leaking into the
+    model input.
+    """
+    variables = set(_PROMPT_VARIABLE_RE.findall(template))
+    missing = variables.difference(context)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"Missing system prompt variables: {names}")
+
+    return _PROMPT_VARIABLE_RE.sub(lambda match: context[match.group(1)], template)
 
 
 def _build_model(settings: Settings) -> BaseChatModel:
@@ -103,8 +118,8 @@ def _build_prompt_context(
         "current_datetime": _format_current_datetime(current),
         "saudacao": _saudacao_for(current.hour),
         "contact_name": contact_name or "",
-        # LangChain passes strings through — use "sim"/"não" so the model
-        # reasons about the variable as intended by the prompt copy.
+        # Use "sim"/"não" so the model reasons about the variable as
+        # intended by the prompt copy.
         "is_first_turn": "sim" if history_len <= 1 else "não",
     }
 
@@ -122,16 +137,7 @@ class WhatsAppAgent:
         self._checkpointer_ctx: Any | None = None
         self._graph: Any | None = None
         self._lock = asyncio.Lock()
-
-        # Compile the prompt template once. Mustache format lets us write
-        # `{{var}}` in the MD without escaping every stray `{` in examples.
-        system_template = SystemMessagePromptTemplate.from_template(
-            _load_prompt(settings.agent_prompt_path),
-            template_format="mustache",
-        )
-        self._prompt_template = ChatPromptTemplate.from_messages(
-            [system_template, MessagesPlaceholder("history")]
-        )
+        self._system_prompt = _load_prompt(settings.agent_prompt_path)
 
     async def setup(self) -> None:
         """Open the SQLite checkpointer and compile the graph."""
@@ -202,10 +208,11 @@ class WhatsAppAgent:
             contact_name=contact_name,
         )
 
-        prompt_value = await self._prompt_template.ainvoke(
-            {**context, "history": trimmed}
-        )
-        messages = prompt_value.to_messages()
+        system_prompt = _render_prompt(self._system_prompt, context)
+        messages: list[AnyMessage] = [
+            SystemMessage(content=system_prompt),
+            *trimmed,
+        ]
 
         async with self._lock:
             # Mistral's free tier rate-limits hard; serialize outbound calls
